@@ -1,6 +1,3 @@
-Here’s a more GitHub-friendly version with proper formatting, including headings, code blocks, and a clean layout:
-
----
 
 # 🚀 Project Setup Guide
 
