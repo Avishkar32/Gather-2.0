@@ -20,14 +20,20 @@ const useGame = (canvasRef, socketRef, keysRef) => {
   const gameContainerRef = useRef(null);
   const playerProximityState = useRef({});
   const interactionMenu = useRef(new InteractionMenu());
+  const [imagesLoaded, setImagesLoaded] = useState(false); // <-- NEW
 
   // Load images
-  useEffect(() => {
+ useEffect(() => {
     const loadImage = (src) => {
       return new Promise((resolve) => {
         const img = new Image();
         img.src = src;
-        img.onload = () => resolve(img);
+        img.onload = () => {
+          resolve(img);
+        };
+        img.onerror = (error) => {
+          console.error(`Error loading image: ${src}`, error);
+        };
       });
     };
 
@@ -50,6 +56,9 @@ const useGame = (canvasRef, socketRef, keysRef) => {
           left: leftImg,
           right: rightImg
         });
+
+        setImagesLoaded(true); // <-- set flag
+        console.log('All images loaded successfully');
       } catch (error) {
         console.error('Error loading images:', error);
       }
@@ -61,193 +70,69 @@ const useGame = (canvasRef, socketRef, keysRef) => {
   // Initialize boundaries
   useEffect(() => {
     const generated = collisions.flatMap((row, i) =>
-      row.map((cell, j) => 
-        cell === 1 ? { 
-          x: j * BOUNDARY_SIZE,
-          y: i * BOUNDARY_SIZE,
-          width: BOUNDARY_SIZE - 5,
-          height: BOUNDARY_SIZE - 10
-        } : null
+      row.map((cell, j) =>
+        cell === 1
+          ? { 
+              x: j * BOUNDARY_SIZE,
+              y: i * BOUNDARY_SIZE,
+              width: BOUNDARY_SIZE - 5,
+              height: BOUNDARY_SIZE - 10
+            }
+          : null
       ).filter(Boolean)
     );
     setBoundaries(generated);
+    console.log('Boundaries generated:', generated);
   }, []);
 
-  // Initialize socket listeners
-  useEffect(() => {
-    if (!socketRef.current || !playerImages) return;
-
-    const socket = socketRef.current;
-
-    // const handleCurrentPlayers = (players) => {
-    //   const playerInfo = players[socket.id];
-    //   if (playerInfo) {
-    //     const validPosition = findValidSpawnPosition();
-    //     const newPlayer = new Sprite({
-    //       position: validPosition,
-    //       image: playerImages.down,
-    //       frames: { max: 4 },
-    //       sprites: playerImages,
-    //       name: playerInfo.name || `Player-${socket.id.substr(0, 4)}`,
-    //       id: socket.id,
-    //       speed: 3
-    //     });
-    //     setPlayer(newPlayer);
-
-    //     const others = {};
-    //     Object.entries(players).forEach(([id, data]) => {
-    //       if (id !== socket.id) {
-    //         others[id] = new Sprite({
-    //           position: data.position || { x: 100, y: 100 },
-    //           image: playerImages[data.direction] || playerImages.down,
-    //           frames: { max: 4 },
-    //           sprites: playerImages,
-    //           name: data.name,
-    //           id: id,
-    //           speed: 3,
-    //           lastDirection: data.direction || 'down',
-    //           moving: data.moving || false
-    //         });
-    //       }
-    //     });
-    //     setOtherPlayers(others);
-    //     setPlayerCount(Object.keys(players).length);
-
-    //     // Update server with our valid position
-    //     socket.emit('playerMovement', {
-    //       position: validPosition,
-    //       direction: 'down',
-    //       moving: false
-    //     });
-    //   }
-    // };
-
-
-    // In your socket.on('currentPlayers') handler:
-const handleCurrentPlayers = (players) => {
-  const others = {};
-  Object.entries(players).forEach(([id, data]) => {
-    others[id] = new Sprite({
-      position: data.position,
-      image: playerImages[data.direction] || playerImages.down,
-      frames: { max: 4 },
-      sprites: playerImages,
-      name: data.name,
-      id: id,
-      speed: 3
+  // Define all socket handlers with useCallback
+  const handleCurrentPlayers = useCallback((players) => {
+    console.log('Received current players:', players);
+    console.log('Player Images state (handleCurrentPlayers):', playerImages);
+    const others = {};
+    Object.entries(players).forEach(([id, data]) => {
+      others[id] = new Sprite({
+        position: data.position,
+        image: playerImages?.[data.direction] || playerImages?.down,
+        frames: { max: 4 },
+        sprites: playerImages,
+        name: data.name,
+        id: id,
+        speed: 3
+      });
     });
-  });
-  setOtherPlayers(others);
-  setPlayerCount(Object.keys(players).length + 1); // +1 for local player
-};
-    const handleNewPlayer = (playerInfo) => {
-      setOtherPlayers(prev => ({
-        ...prev,
-        [playerInfo.id]: new Sprite({
-          position: playerInfo.position,
-          image: playerImages[playerInfo.direction] || playerImages.down,
-          frames: { max: 4 },
-          sprites: playerImages,
-          name: playerInfo.name,
-          id: playerInfo.id,
-          speed: 3,
-          lastDirection: playerInfo.direction || 'down',
-          moving: playerInfo.moving || false
-        })
-      }));
-      setPlayerCount(prev => prev + 1);
-    };
+    setOtherPlayers(others);
+    setPlayerCount(Object.keys(players).length + 1);
+  }, [playerImages]);
 
-    const handlePlayerMoved = (playerInfo) => {
-      setOtherPlayers(prev => {
-        const existingPlayer = prev[playerInfo.id];
-        if (existingPlayer) {
-          return {
-            ...prev,
-            [playerInfo.id]: {
-              ...existingPlayer,
-              position: playerInfo.position,
-              lastDirection: playerInfo.direction,
-              moving: playerInfo.moving
-            }
-          };
-        }
-        return prev;
-      });
-    };
+  const handleNewPlayer = useCallback((playerInfo) => {
+    console.log('New player joined:', playerInfo);
+    console.log('Player Images state (handleNewPlayer):', playerImages);
+    setOtherPlayers(prev => ({
+      ...prev,
+      [playerInfo.id]: new Sprite({
+        position: playerInfo.position,
+        image: playerImages?.[playerInfo.direction] || playerImages?.down,
+        frames: { max: 4 },
+        sprites: playerImages,
+        name: playerInfo.name,
+        id: playerInfo.id,
+        speed: 3,
+        lastDirection: playerInfo.direction || 'down',
+        moving: playerInfo.moving || false
+      })
+    }));
+    setPlayerCount(prev => prev + 1);
+  }, [playerImages]);
 
-    const handlePlayerDisconnected = (playerId) => {
-      setOtherPlayers(prev => {
-        const newPlayers = { ...prev };
-        delete newPlayers[playerId];
-        return newPlayers;
-      });
-      setPlayerCount(prev => prev - 1);
-    };
-
-    socket.on('currentPlayers', handleCurrentPlayers);
-    socket.on('newPlayer', handleNewPlayer);
-    socket.on('playerMoved', handlePlayerMoved);
-    socket.on('playerDisconnected', handlePlayerDisconnected);
-
-    return () => {
-      socket.off('currentPlayers', handleCurrentPlayers);
-      socket.off('newPlayer', handleNewPlayer);
-      socket.off('playerMoved', handlePlayerMoved);
-      socket.off('playerDisconnected', handlePlayerDisconnected);
-    };
-  }, [socketRef, playerImages]);
-
-  // In your useGame.js, ensure these socket listeners exist:
-// In useGame.js
-useEffect(() => {
-    if (!socketRef.current || !playerImages) return;
-  
-    const socket = socketRef.current;
-  
-    const handleNewPlayer = (playerInfo) => {
-      setOtherPlayers(prev => ({
-        ...prev,
-        [playerInfo.id]: new Sprite({
-          position: playerInfo.position,
-          image: playerImages[playerInfo.direction] || playerImages.down,
-          frames: { max: 4 },
-          sprites: playerImages,
-          name: playerInfo.name,
-          id: playerInfo.id
-        })
-      }));
-      setPlayerCount(prev => prev + 1);
-    };
-  
-    // const handlePlayerMoved = (playerInfo) => {
-    //   setOtherPlayers(prev => {
-    //     const existing = prev[playerInfo.id];
-    //     if (existing) {
-    //       const updatedPlayer = new Sprite({
-    //         ...existing,
-    //         position: playerInfo.position,
-    //         moving: playerInfo.moving
-    //       });
-    //       updatedPlayer.setDirection(playerInfo.direction);
-    //       return {
-    //         ...prev,
-    //         [playerInfo.id]: updatedPlayer
-    //       };
-    //     }
-    //     return prev;
-    //   });
-    // };
-  
-    // Update the playerMoved handler to maintain Sprite instances
-const handlePlayerMoved = (playerInfo) => {
+  const handlePlayerMoved = useCallback((playerInfo) => {
+    //console.log('Player moved:', playerInfo);
     setOtherPlayers(prev => {
       const existing = prev[playerInfo.id];
       if (existing) {
-        // Create NEW Sprite instance with updated properties
         const updatedPlayer = new Sprite({
           position: playerInfo.position,
-          image: playerImages[playerInfo.direction] || playerImages.down,
+          image: playerImages?.[playerInfo.direction] || playerImages?.down,
           frames: { max: 4 },
           sprites: playerImages,
           name: existing.name,
@@ -263,16 +148,124 @@ const handlePlayerMoved = (playerInfo) => {
       }
       return prev;
     });
-  };
-
-    socket.on('newPlayer', handleNewPlayer);
-    socket.on('playerMoved', handlePlayerMoved);
-  
-    return () => {
-      socket.off('newPlayer', handleNewPlayer);
-      socket.off('playerMoved', handlePlayerMoved);
-    };
   }, [playerImages]);
+
+  const handlePlayerDisconnected = useCallback((playerId) => {
+    console.log('Player disconnected:', playerId);
+    setOtherPlayers(prev => {
+      const newPlayers = { ...prev };
+      delete newPlayers[playerId];
+      return newPlayers;
+    });
+    setPlayerCount(prev => prev - 1);
+  }, []);
+
+  // Single useEffect for all socket listeners
+  // useEffect(() => {
+  //   if (!socketRef.current) {
+  //     console.warn('Socket instance is not available yet.');
+  //     return;
+  //   }
+
+  //   const socket = socketRef.current;
+  //   console.log('Setting up socket listeners...');
+
+  //   // Log socket instance for debugging
+  //   console.log('Socket instance:', socket);
+
+  //   // Set up all listeners with inline debugging logging
+  //   socket.on('currentPlayers', (players) => {
+  //     console.log('[DEBUG] currentPlayers event intercepted:', players);
+  //     handleCurrentPlayers(players);
+  //   });
+  //   socket.on('newPlayer', (playerInfo) => {
+  //     console.log('[DEBUG] newPlayer event intercepted:', playerInfo);
+  //     handleNewPlayer(playerInfo);
+  //   });
+  //   socket.on('playerMoved', (playerInfo) => {
+  //     //console.log('[DEBUG] playerMoved event intercepted:', playerInfo);
+  //     handlePlayerMoved(playerInfo);
+  //   });
+  //   socket.on('playerDisconnected', (playerId) => {
+  //     console.log('[DEBUG] playerDisconnected event intercepted:', playerId);
+  //     handlePlayerDisconnected(playerId);
+  //   });
+
+  //   // Additional debugging: log when socket connects
+  //   socket.on('connect', () => {
+  //     console.log('Socket connected, waiting for currentPlayers...');
+  //     // Optionally, log the socket id:
+  //     console.log('Socket id:', socket.id);
+  //   });
+
+  //   // Cleanup function
+  //   return () => {
+  //     console.log('Cleaning up socket listeners...');
+  //     socket.off('currentPlayers', handleCurrentPlayers);
+  //     socket.off('newPlayer', handleNewPlayer);
+  //     socket.off('playerMoved', handlePlayerMoved);
+  //     socket.off('playerDisconnected', handlePlayerDisconnected);
+  //   };
+  // }, [socketRef, handleCurrentPlayers, handleNewPlayer, handlePlayerMoved, handlePlayerDisconnected]);
+
+  // useEffect(() => {
+  //   if (!socketRef.current || !imagesLoaded) return; // <-- wait for images
+  
+  //   const socket = socketRef.current;
+  //   console.log('Setting up socket listeners...');
+  
+  //   socket.on('currentPlayers', handleCurrentPlayers);
+  //   socket.on('newPlayer', handleNewPlayer);
+  //   socket.on('playerMoved', handlePlayerMoved);
+  //   socket.on('playerDisconnected', handlePlayerDisconnected);
+  
+  //   socket.on('connect', () => {
+  //     console.log('Socket connected, id:', socket.id);
+  //   });
+  
+  //   return () => {
+  //     console.log('Cleaning up socket listeners...');
+  //     socket.off('currentPlayers', handleCurrentPlayers);
+  //     socket.off('newPlayer', handleNewPlayer);
+  //     socket.off('playerMoved', handlePlayerMoved);
+  //     socket.off('playerDisconnected', handlePlayerDisconnected);
+  //   };
+  // }, [socketRef, imagesLoaded, handleCurrentPlayers, handleNewPlayer, handlePlayerMoved, handlePlayerDisconnected]);
+  
+
+  // In your useGame.js, modify the socket effect:
+
+useEffect(() => {
+  if (!socketRef.current) return;
+
+  const socket = socketRef.current;
+  console.log('Setting up socket listeners...');
+
+  // Set up listeners immediately
+  socket.on('currentPlayers', handleCurrentPlayers);
+  socket.on('newPlayer', handleNewPlayer);
+  socket.on('playerMoved', handlePlayerMoved);
+  socket.on('playerDisconnected', handlePlayerDisconnected);
+
+  socket.on('connect', () => {
+    console.log('Socket connected, id:', socket.id);
+  });
+
+  // When images are loaded, request players again
+  if (imagesLoaded) {
+    console.log('Images loaded, requesting current players');
+    socket.emit('requestPlayers');
+  }
+
+  return () => {
+    console.log('Cleaning up socket listeners...');
+    socket.off('currentPlayers', handleCurrentPlayers);
+    socket.off('newPlayer', handleNewPlayer);
+    socket.off('playerMoved', handlePlayerMoved);
+    socket.off('playerDisconnected', handlePlayerDisconnected);
+  };
+}, [socketRef, imagesLoaded, handleCurrentPlayers, handleNewPlayer, handlePlayerMoved, handlePlayerDisconnected]);
+
 
   // Collision detection
   const checkCollision = useCallback((x, y) => {
@@ -291,9 +284,11 @@ const handlePlayerMoved = (playerInfo) => {
       const y = Math.floor(Math.random() * (MAP_HEIGHT - 60)) + 30;
       
       if (!checkCollision(x, y)) {
+        console.log('Found valid spawn position:', { x, y });
         return { x, y };
       }
     }
+    console.warn('Default spawn position used');
     return { x: 100, y: 100 };
   }, [checkCollision]);
 
@@ -302,6 +297,7 @@ const handlePlayerMoved = (playerInfo) => {
     if (!player) return;
 
     if (interactionMenu.current.visible) {
+      console.log('Interaction menu visible, hiding menu.');
       interactionMenu.current.hide();
       return;
     }
@@ -315,12 +311,16 @@ const handlePlayerMoved = (playerInfo) => {
 
     if (nearbyPlayer) {
       const [id, otherPlayer] = nearbyPlayer;
-      const centerX = otherPlayer.position.x + otherPlayer.width / 2;
+      const centerX = otherPlayer.position.x + (otherPlayer.width ? otherPlayer.width / 2 : 0);
       const centerY = otherPlayer.position.y;
+      console.log('Nearby player found for interaction:', id, { x: centerX, y: centerY });
       interactionMenu.current.show(id, { x: centerX, y: centerY });
       
       // Notify other player about the interaction
-      socketRef.current?.emit('playerInteraction', { targetId: id });
+      if (socketRef.current) {
+        socketRef.current.emit('playerInteraction', { targetId: id });
+        console.log('Emitted playerInteraction event with targetId:', id);
+      }
     }
   }, [player, otherPlayers, socketRef]);
 
@@ -334,13 +334,12 @@ const handlePlayerMoved = (playerInfo) => {
       const distance = Math.sqrt(dx * dx + dy * dy);
       const isNearby = distance <= INTERACTION_RANGE;
       const wasNearby = playerProximityState.current[id] || false;
-
       playerProximityState.current[id] = isNearby;
 
       if (!wasNearby && isNearby) {
-        console.log(`${otherPlayer.name} is nearby!`);
+        console.log(`[DEBUG] ${otherPlayer.name} is nearby!`);
       } else if (wasNearby && !isNearby) {
-        console.log(`${otherPlayer.name} left the area`);
+        console.log(`[DEBUG] ${otherPlayer.name} left the area`);
       }
     });
   }, [player, otherPlayers]);
