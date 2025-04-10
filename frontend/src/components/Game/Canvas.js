@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import collisions  from '../../utils/collisions';
+import collisions from '../../utils/collisions';
 import Sprite from './Sprite';
 import io from 'socket.io-client';
 import './styles.css';
@@ -20,6 +20,8 @@ const Canvas = () => {
     e: false
   });
   const [showChat, setShowChat] = useState(false);
+  const [showNameModal, setShowNameModal] = useState(true);
+  const [tempPlayerName, setTempPlayerName] = useState('');
   
   const {
     player,
@@ -55,22 +57,31 @@ const Canvas = () => {
     };
   }, []);
 
-  // Game initialization
-  useEffect(() => {
-    if (!ctx || !socketRef.current) return;
-
-    // Initialize game when map loads
-    if (mapImage) {
-      const initialPlayer = new Sprite({
-        position: findValidSpawnPosition(),
-        image: playerImages.down,
-        frames: { max: 4 },
-        sprites: playerImages,
-        name: playerName || `Player-${socketRef.current.id?.substr(0, 4)}`,
-        speed: 3
-      });
-      setPlayer(initialPlayer);
+  // Handle name submission
+  const handleNameSubmit = () => {
+    if (!tempPlayerName.trim()) return alert('Please enter a valid name');
+    setPlayerName(tempPlayerName);
+    setShowNameModal(false);
+    
+    // Register the name with the socket
+    if (socketRef.current) {
+      socketRef.current.emit('register', tempPlayerName);
     }
+  };
+
+  // Game initialization - now depends on playerName being set
+  useEffect(() => {
+    if (!ctx || !socketRef.current || !playerName || !mapImage) return;
+
+    const initialPlayer = new Sprite({
+      position: findValidSpawnPosition(),
+      image: playerImages.down,
+      frames: { max: 4 },
+      sprites: playerImages,
+      name: playerName,
+      speed: 3
+    });
+    setPlayer(initialPlayer);
   }, [ctx, playerName, setPlayer, findValidSpawnPosition, mapImage, playerImages]);
 
   // Handle key presses for interaction
@@ -129,7 +140,7 @@ const Canvas = () => {
     };
   }, [otherPlayers]);
 
-  //Game loop
+  // Game loop
   const animate = useCallback(() => {
     if (!player || !ctx || !mapImage) return;
 
@@ -201,22 +212,28 @@ const Canvas = () => {
 
   return (
     <div className="game-container" ref={gameContainerRef}>
+      {/* Name Input Modal */}
+      {showNameModal && (
+        <div className="name-modal-backdrop">
+          <div className="name-modal">
+            <h2  style={{ color: 'black' }}>Enter Your Player Name</h2>
+            <input
+              type="text"
+              placeholder="Enter your name"
+              value={tempPlayerName}
+              onChange={(e) => setTempPlayerName(e.target.value)}
+              maxLength="15"
+              onKeyDown={(e) => e.key === 'Enter' && handleNameSubmit()}
+            />
+            <button onClick={handleNameSubmit}>Start Game</button>
+          </div>
+        </div>
+      )}
+
       <div className="header-bar">
         <div className="game-logo">Virtual Office</div>
         <div className="player-controls">
-          <input
-            type="text"
-            value={playerName}
-            onChange={(e) => {
-              setPlayerName(e.target.value);
-              if (player) {
-                player.name = e.target.value;
-                socketRef.current?.emit('updateName', e.target.value);
-              }
-            }}
-            placeholder="Enter your name"
-            maxLength="15"
-          />
+          <div className="player-name-display">{playerName}</div>
           <div className="player-count">Players: {playerCount}</div>
         </div>
       </div>
@@ -251,20 +268,45 @@ const Canvas = () => {
       </div>
       {showChat && (
         <div 
-          style={{
-            position: 'fixed',
-            right: '20px',
-            bottom: '80px',
-            width: '800px',         // Increased from 400px
-            height: '70vh',         // Changed to viewport height
-            backgroundColor: 'white',
-            borderRadius: '10px',
-            boxShadow: '0 0 10px rgba(0,0,0,0.2)',
-            zIndex: 1000,
-            overflow: 'hidden'      // Added overflow control
-          }}
-        >
-          <Chat />
+        style={{
+          position: 'fixed',
+          right: '20px',
+          bottom: '80px',
+          width: '800px',
+          height: '70vh',
+          backgroundColor: 'white',
+          borderRadius: '15px',
+          boxShadow: '0 10px 25px rgba(0,0,0,0.3), 0 6px 12px rgba(74, 108, 247, 0.2)',
+          zIndex: 1000,
+          overflow: 'hidden',
+          border: '2px solid rgba(74, 108, 247, 0.1)',
+          background: 'linear-gradient(to bottom right, #ffffff, #f0f4ff)'
+        }}
+      >
+        <button
+                onClick={() => setShowChat(false)}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '10px',
+                  backgroundColor: '#ff4b4b',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '30px',
+                  height: '30px',
+                  color: 'white',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+                  zIndex: 1001
+                }}
+              >
+                ×
+              </button>
+          <Chat username={playerName} socket={socketRef.current} />
         </div>
       )}
     </div>
