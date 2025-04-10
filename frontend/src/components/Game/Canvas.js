@@ -4,6 +4,8 @@ import Sprite from './Sprite';
 import io from 'socket.io-client';
 import './styles.css';
 import useGame from './useGame';
+import Chat from './chat';
+import { MessageCircle } from 'lucide-react';
 
 const Canvas = () => {
   const canvasRef = useRef(null);
@@ -17,6 +19,7 @@ const Canvas = () => {
     ArrowRight: false,
     e: false
   });
+  const [showChat, setShowChat] = useState(false);
   
   const {
     player,
@@ -189,29 +192,6 @@ const Canvas = () => {
     animationFrameRef.current = requestAnimationFrame(animate);
   }, [player, otherPlayers, ctx, checkCollision, checkNearbyPlayers, mapImage, backgroundImage]);
 
-  // const animate = useCallback(() => {
-  //   if (!player || !ctx || !mapImage) return;
-  
-  //   // Clear canvas
-  //   ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-  
-  //   // Draw background and map
-  //   if (backgroundImage) ctx.drawImage(backgroundImage, 0, 0,canvasRef.current.width, canvasRef.current.height);
-  //   ctx.drawImage(mapImage, 0, 0, 1024, 576);
-  
-  //   // Draw other players
-  //   Object.values(otherPlayers).forEach(otherPlayer => {
-  //     if (otherPlayer instanceof Sprite) { // Add this check
-  //       otherPlayer.draw(ctx);
-  //     }
-  //   });
-  
-  //   // Draw local player
-  //   player.draw(ctx);
-  
-  //   animationFrameRef.current = requestAnimationFrame(animate);
-  // }, [player, otherPlayers, ctx, mapImage, backgroundImage]);
-
   useEffect(() => {
     if (player && mapImage) {
       animate();
@@ -240,7 +220,53 @@ const Canvas = () => {
           <div className="player-count">Players: {playerCount}</div>
         </div>
       </div>
-      <canvas ref={canvasRef} width={1550} height={700} />
+      <div style={{ position: 'relative' }}>
+        <canvas ref={canvasRef} width={1550} height={700} />
+        <button 
+          className="chat-button"
+          onClick={() => setShowChat(!showChat)}
+          style={{
+            position: 'absolute',
+            bottom: '20px',
+            right: '20px',
+            backgroundColor: '#4CAF50',
+            border: 'none',
+            borderRadius: '50%',
+            width: '50px',
+            height: '50px',
+            cursor: 'pointer',
+            boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <MessageCircle
+            style={{
+              width: '30px',
+              height: '30px'
+            }}
+          />
+        </button>
+      </div>
+      {showChat && (
+        <div 
+          style={{
+            position: 'fixed',
+            right: '20px',
+            bottom: '80px',
+            width: '800px',         // Increased from 400px
+            height: '70vh',         // Changed to viewport height
+            backgroundColor: 'white',
+            borderRadius: '10px',
+            boxShadow: '0 0 10px rgba(0,0,0,0.2)',
+            zIndex: 1000,
+            overflow: 'hidden'      // Added overflow control
+          }}
+        >
+          <Chat />
+        </div>
+      )}
     </div>
   );
 };

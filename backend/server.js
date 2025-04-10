@@ -1,95 +1,4 @@
-// // const express = require('express');
-// // const http = require('http');
-// // const { Server } = require('socket.io');
-// // const cors = require('cors');
 
-// // const app = express();
-// // app.use(cors());
-// // const server = http.createServer(app);
-
-// // const io = new Server(server, {
-// //   cors: {
-// //     origin: "http://localhost:3000", // Your frontend URL
-// //     methods: ["GET", "POST"]
-// //   }
-// // });
-
-// // const players = {};
-
-// // io.on('connection', (socket) => {
-// //   // console.log(`Player connected: ${socket.id}`);
-  
-// //   // // Add new player to the game
-// //   // players[socket.id] = {
-// //   //   position: { x: 300, y: 300 }, // Default position
-// //   //   direction: 'down',
-// //   //   name: `Player-${socket.id.substr(0, 4)}`,
-// //   //   id: socket.id
-// //   // };
-
-// //   // // Send current players to new player
-// //   // socket.emit('currentPlayers', players);
-  
-// //   // // Tell everyone else about new player
-// //   // socket.broadcast.emit('newPlayer', players[socket.id]);
-
-// //   // // Handle player movement
-// //   // socket.on('playerMovement', (movementData) => {
-// //   //   if (players[socket.id]) {
-// //   //     players[socket.id] = {
-// //   //       ...players[socket.id],
-// //   //       ...movementData
-// //   //     };
-// //   //     // Broadcast movement to all other players
-// //   //     socket.broadcast.emit('playerMoved', players[socket.id]);
-// //   //   }
-// //   // });
-
-// //   console.log(`Player connected: ${socket.id}`);
-  
-// //   // Add new player to the game
-// //   players[socket.id] = {
-// //     position: { x: 300, y: 300 },
-// //     direction: 'down',
-// //     name: `Player-${socket.id.substr(0, 4)}`,
-// //     id: socket.id,
-// //     moving: false // Add initial moving state
-// //   };
-
-// //   // Send ALL players to the new connection
-// //   socket.emit('currentPlayers', players);
-  
-// //   // Notify EVERYONE about the new player (including the new player)
-// //   io.emit('newPlayer', players[socket.id]); // Changed from socket.broadcast
-
-// //   // Handle player movement
-// //   socket.on('playerMovement', (movementData) => {
-// //     if (players[socket.id]) {
-// //       // Update server-side player state
-// //       players[socket.id] = {
-// //         ...players[socket.id],
-// //         ...movementData
-// //       };
-      
-// //       // Broadcast full player data to everyone
-// //       io.emit('playerMoved', players[socket.id]); // Changed from socket.broadcast
-// //     }
-// //   });
-
-
-// //   // Handle disconnections
-// //   socket.on('disconnect', () => {
-// //     console.log(`Player disconnected: ${socket.id}`);
-// //     delete players[socket.id];
-// //     // Tell all clients to remove this player
-// //     io.emit('playerDisconnected', socket.id);
-// //   });
-// // });
-
-// // const PORT = 3001;
-// // server.listen(PORT, () => {
-// //   console.log(`Server running on port ${PORT}`);
-// // });
 
 // const express = require('express');
 // const http = require('http');
@@ -111,13 +20,6 @@
 
 // io.on('connection', (socket) => {
 //   console.log(`Player connected: ${socket.id}`);
-
-//   const otherPlayers = Object.fromEntries(
-//     Object.entries(players).filter(([id]) => id !== socket.id)
-//   );
-//   console.log('Current players sent to new player:', otherPlayers);
-//   socket.emit('currentPlayers', otherPlayers);
-  
   
 //   // Add new player to the game
 //   const newPlayer = {
@@ -129,10 +31,24 @@
 //   };
 //   players[socket.id] = newPlayer;
 
-//   // 1. Send existing players to NEW player (excluding self)
- 
-//   // 2. Tell EXISTING players about the NEW player
+//   // Send existing players to NEW player (excluding self)
+//   const otherPlayers = Object.fromEntries(
+//     Object.entries(players).filter(([id]) => id !== socket.id)
+//   );
+//   console.log('Current players sent to new player:', otherPlayers);
+//   socket.emit('currentPlayers', otherPlayers);
+  
+//   // Tell EXISTING players about the NEW player
 //   socket.broadcast.emit('newPlayer', newPlayer);
+
+//   // NEW: Allow client to request players list again when ready
+//   socket.on('requestPlayers', () => {
+//     const currentOtherPlayers = Object.fromEntries(
+//       Object.entries(players).filter(([id]) => id !== socket.id)
+//     );
+//     console.log('Re-sending current players on request:', currentOtherPlayers);
+//     socket.emit('currentPlayers', currentOtherPlayers);
+//   });
 
 //   // Handle player movement
 //   socket.on('playerMovement', (movementData) => {
@@ -159,13 +75,24 @@
 //   console.log(`Server running on port ${PORT}`);
 // });
 
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Create uploads directory if it doesn't exist
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
 
 const app = express();
 app.use(cors());
+app.use(express.static('uploads')); // Serve static files from uploads directory
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -175,10 +102,37 @@ const io = new Server(server, {
   }
 });
 
+// Game state
 const players = {};
 
+// Chat state
+const chatMap = new Map();
+const users = {}; // Map usernames to socket IDs
+
+// Multer setup for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  },
+});
+
+const upload = multer({ storage });
+
+// File upload endpoint
+app.post('/upload', upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+  res.json({ filePath: `http://localhost:3001/${req.file.filename}` });
+});
+
 io.on('connection', (socket) => {
-  console.log(`Player connected: ${socket.id}`);
+  console.log(`User connected: ${socket.id}`);
+  
+  // ===== GAME FUNCTIONALITY =====
   
   // Add new player to the game
   const newPlayer = {
@@ -200,7 +154,7 @@ io.on('connection', (socket) => {
   // Tell EXISTING players about the NEW player
   socket.broadcast.emit('newPlayer', newPlayer);
 
-  // NEW: Allow client to request players list again when ready
+  // Allow client to request players list again when ready
   socket.on('requestPlayers', () => {
     const currentOtherPlayers = Object.fromEntries(
       Object.entries(players).filter(([id]) => id !== socket.id)
@@ -221,11 +175,81 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ===== CHAT FUNCTIONALITY =====
+  
+  // User registration
+  socket.on('register', (username) => {
+    users[username] = socket.id;
+    
+    // Update player name if exists
+    if (players[socket.id]) {
+      players[socket.id].name = username;
+      io.emit('playerMoved', players[socket.id]);
+    }
+    
+    console.log(`User ${username} connected with ID ${socket.id}`);
+    io.emit('onlineUserswithnames', users);
+  });
+
+  // Send message
+  socket.on('sendMessage', ({ listner, message }) => {
+    console.log(`Message from ${socket.id} to ${listner}: ${message}`);
+
+    // Normalize the key by sorting the array
+    const key = [listner, socket.id].sort().join('|');
+
+    // Check if the chat already exists between these two users
+    if (!chatMap.has(key)) {
+      // If not, initialize an empty array for their chat
+      chatMap.set(key, []);
+    }
+
+    // Get username of sender
+    const senderUsername = Object.keys(users).find(key => users[key] === socket.id) || 
+                           (players[socket.id] ? players[socket.id].name : `Unknown-${socket.id.substr(0, 4)}`);
+
+    // Add the message along with sender info to the chat
+    chatMap.get(key).push({ 
+      sender: socket.id, 
+      message, 
+      senderUsername: senderUsername
+    });
+
+    // Emit the message to both parties
+    io.to(listner).emit('receive_message_sec', chatMap.get(key), socket.id);
+    socket.emit('receive_message', chatMap.get(key));
+  });
+
+  // Get chat history
+  socket.on('getchathistory', (userKey) => {
+    const key = [userKey, socket.id].sort().join('|');
+
+    // Check if the chat already exists between these two users
+    if (!chatMap.has(key)) {
+      // If not, initialize an empty array for their chat
+      chatMap.set(key, []);
+    }
+
+    socket.emit('receive_message', chatMap.get(key));
+  });
+
   // Handle disconnections
   socket.on('disconnect', () => {
-    console.log(`Player disconnected: ${socket.id}`);
+    console.log(`User disconnected: ${socket.id}`);
+    
+    // Game cleanup
     delete players[socket.id];
     io.emit('playerDisconnected', socket.id);
+    
+    // Chat cleanup
+    const username = Object.keys(users).find(key => users[key] === socket.id);
+    if (username) {
+      delete users[username];
+      console.log(`User ${username} disconnected`);
+    }
+    
+    // Notify clients about updated online users
+    io.emit('onlineUserswithnames', users);
   });
 });
 
