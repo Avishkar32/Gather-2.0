@@ -22,6 +22,7 @@ const Canvas = () => {
   const [showChat, setShowChat] = useState(false);
   const [showNameModal, setShowNameModal] = useState(true);
   const [tempPlayerName, setTempPlayerName] = useState('');
+  const [incomingCall, setIncomingCall] = useState(null);
   
   const {
     player,
@@ -139,6 +140,47 @@ const Canvas = () => {
       canvas.removeEventListener('click', handleClick);
     };
   }, [otherPlayers]);
+
+  // Listen for incoming call popup
+  useEffect(() => {
+    if (!socketRef.current) return;
+    const handleReceiveCall = (data) => {
+      setIncomingCall(data);
+    };
+    socketRef.current.on('receiveCall', handleReceiveCall);
+    return () => {
+      socketRef.current.off('receiveCall', handleReceiveCall);
+    };
+  }, []);
+
+  // Patch interaction menu to trigger call
+  useEffect(() => {
+    if (!interactionMenu.current) return;
+    // Save original handleClick
+    const originalHandleClick = interactionMenu.current.handleClick.bind(interactionMenu.current);
+    interactionMenu.current.handleClick = (otherPlayers) => {
+      if (
+        interactionMenu.current.visible &&
+        interactionMenu.current.selectedOption === 'voiceChat' &&
+        interactionMenu.current.targetId
+      ) {
+        // Send call event to server
+        if (socketRef.current) {
+          socketRef.current.emit('callUser', {
+            targetId: interactionMenu.current.targetId,
+            callerName: playerName
+          });
+        }
+        interactionMenu.current.hide();
+        return true;
+      }
+      return originalHandleClick(otherPlayers);
+    };
+    // Cleanup: restore original on unmount
+    return () => {
+      interactionMenu.current.handleClick = originalHandleClick;
+    };
+  }, [interactionMenu, playerName]);
 
   // Game loop
   const animate = useCallback(() => {
@@ -266,6 +308,68 @@ const Canvas = () => {
           />
         </button>
       </div>
+      {/* Incoming Call Popup */}
+      {incomingCall && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 0, right: 0, top: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.3)',
+            zIndex: 2000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '12px',
+              padding: '32px 40px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+              textAlign: 'center',
+              minWidth: '320px'
+            }}
+          >
+            <h2 style={{ marginBottom: 16, color: '#4a6cf7' }}>
+              Incoming Call
+            </h2>
+            <div style={{ marginBottom: 24, fontSize: 18 }}>
+              {incomingCall.callerName} is calling you...
+            </div>
+            <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
+              <button
+                style={{
+                  background: '#4CAF50',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '10px 24px',
+                  fontSize: 16,
+                  cursor: 'pointer'
+                }}
+                onClick={() => setIncomingCall(null)}
+              >
+                Accept
+              </button>
+              <button
+                style={{
+                  background: '#ff4b4b',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '10px 24px',
+                  fontSize: 16,
+                  cursor: 'pointer'
+                }}
+                onClick={() => setIncomingCall(null)}
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showChat && (
         <div 
         style={{

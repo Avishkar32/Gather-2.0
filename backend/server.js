@@ -1,81 +1,3 @@
-
-
-// const express = require('express');
-// const http = require('http');
-// const { Server } = require('socket.io');
-// const cors = require('cors');
-
-// const app = express();
-// app.use(cors());
-// const server = http.createServer(app);
-
-// const io = new Server(server, {
-//   cors: {
-//     origin: "http://localhost:3000",
-//     methods: ["GET", "POST"]
-//   }
-// });
-
-// const players = {};
-
-// io.on('connection', (socket) => {
-//   console.log(`Player connected: ${socket.id}`);
-  
-//   // Add new player to the game
-//   const newPlayer = {
-//     position: { x: 300, y: 300 },
-//     direction: 'down',
-//     name: `Player-${socket.id.substr(0, 4)}`,
-//     id: socket.id,
-//     moving: false
-//   };
-//   players[socket.id] = newPlayer;
-
-//   // Send existing players to NEW player (excluding self)
-//   const otherPlayers = Object.fromEntries(
-//     Object.entries(players).filter(([id]) => id !== socket.id)
-//   );
-//   console.log('Current players sent to new player:', otherPlayers);
-//   socket.emit('currentPlayers', otherPlayers);
-  
-//   // Tell EXISTING players about the NEW player
-//   socket.broadcast.emit('newPlayer', newPlayer);
-
-//   // NEW: Allow client to request players list again when ready
-//   socket.on('requestPlayers', () => {
-//     const currentOtherPlayers = Object.fromEntries(
-//       Object.entries(players).filter(([id]) => id !== socket.id)
-//     );
-//     console.log('Re-sending current players on request:', currentOtherPlayers);
-//     socket.emit('currentPlayers', currentOtherPlayers);
-//   });
-
-//   // Handle player movement
-//   socket.on('playerMovement', (movementData) => {
-//     if (players[socket.id]) {
-//       players[socket.id] = {
-//         ...players[socket.id],
-//         ...movementData
-//       };
-//       // Broadcast to ALL players
-//       io.emit('playerMoved', players[socket.id]);
-//     }
-//   });
-
-//   // Handle disconnections
-//   socket.on('disconnect', () => {
-//     console.log(`Player disconnected: ${socket.id}`);
-//     delete players[socket.id];
-//     io.emit('playerDisconnected', socket.id);
-//   });
-// });
-
-// const PORT = 3001;
-// server.listen(PORT, () => {
-//   console.log(`Server running on port ${PORT}`);
-// });
-
-
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -231,6 +153,15 @@ io.on('connection', (socket) => {
     }
 
     socket.emit('receive_message', chatMap.get(key));
+  });
+
+  // ===== VOICE CALL POPUP FUNCTIONALITY =====
+  socket.on('callUser', ({ targetId, callerName }) => {
+    // Send a popup event to the target user with caller info
+    io.to(targetId).emit('receiveCall', {
+      callerId: socket.id,
+      callerName: callerName || (players[socket.id]?.name || `Player-${socket.id.substr(0, 4)}`)
+    });
   });
 
   // Handle disconnections
