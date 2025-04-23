@@ -8,6 +8,14 @@ const INTERACTION_RANGE = 50;
 const MAP_WIDTH = 1024;
 const MAP_HEIGHT = 576;
 
+// Add WebRTC configuration
+const rtcConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+
 const useGame = (canvasRef, socketRef, keysRef) => {
   const [player, setPlayer] = useState(null);
   const [otherPlayers, setOtherPlayers] = useState({});
@@ -21,6 +29,13 @@ const useGame = (canvasRef, socketRef, keysRef) => {
   const playerProximityState = useRef({});
   const interactionMenu = useRef(new InteractionMenu());
   const [imagesLoaded, setImagesLoaded] = useState(false); // <-- NEW
+  const [isInArea2, setIsInArea2] = useState(false);
+  const [meetingRoomCall, setMeetingRoomCall] = useState({ 
+    active: false, 
+    localStream: null,
+    remoteStreams: {} // Changed to handle multiple streams
+  });
+  const meetingPeerConnections = useRef({}); // Store peer connections for meeting room
 
   // Load images
  useEffect(() => {
@@ -160,79 +175,6 @@ const useGame = (canvasRef, socketRef, keysRef) => {
     setPlayerCount(prev => prev - 1);
   }, []);
 
-  // Single useEffect for all socket listeners
-  // useEffect(() => {
-  //   if (!socketRef.current) {
-  //     console.warn('Socket instance is not available yet.');
-  //     return;
-  //   }
-
-  //   const socket = socketRef.current;
-  //   console.log('Setting up socket listeners...');
-
-  //   // Log socket instance for debugging
-  //   console.log('Socket instance:', socket);
-
-  //   // Set up all listeners with inline debugging logging
-  //   socket.on('currentPlayers', (players) => {
-  //     console.log('[DEBUG] currentPlayers event intercepted:', players);
-  //     handleCurrentPlayers(players);
-  //   });
-  //   socket.on('newPlayer', (playerInfo) => {
-  //     console.log('[DEBUG] newPlayer event intercepted:', playerInfo);
-  //     handleNewPlayer(playerInfo);
-  //   });
-  //   socket.on('playerMoved', (playerInfo) => {
-  //     //console.log('[DEBUG] playerMoved event intercepted:', playerInfo);
-  //     handlePlayerMoved(playerInfo);
-  //   });
-  //   socket.on('playerDisconnected', (playerId) => {
-  //     console.log('[DEBUG] playerDisconnected event intercepted:', playerId);
-  //     handlePlayerDisconnected(playerId);
-  //   });
-
-  //   // Additional debugging: log when socket connects
-  //   socket.on('connect', () => {
-  //     console.log('Socket connected, waiting for currentPlayers...');
-  //     // Optionally, log the socket id:
-  //     console.log('Socket id:', socket.id);
-  //   });
-
-  //   // Cleanup function
-  //   return () => {
-  //     console.log('Cleaning up socket listeners...');
-  //     socket.off('currentPlayers', handleCurrentPlayers);
-  //     socket.off('newPlayer', handleNewPlayer);
-  //     socket.off('playerMoved', handlePlayerMoved);
-  //     socket.off('playerDisconnected', handlePlayerDisconnected);
-  //   };
-  // }, [socketRef, handleCurrentPlayers, handleNewPlayer, handlePlayerMoved, handlePlayerDisconnected]);
-
-  // useEffect(() => {
-  //   if (!socketRef.current || !imagesLoaded) return; // <-- wait for images
-  
-  //   const socket = socketRef.current;
-  //   console.log('Setting up socket listeners...');
-  
-  //   socket.on('currentPlayers', handleCurrentPlayers);
-  //   socket.on('newPlayer', handleNewPlayer);
-  //   socket.on('playerMoved', handlePlayerMoved);
-  //   socket.on('playerDisconnected', handlePlayerDisconnected);
-  
-  //   socket.on('connect', () => {
-  //     console.log('Socket connected, id:', socket.id);
-  //   });
-  
-  //   return () => {
-  //     console.log('Cleaning up socket listeners...');
-  //     socket.off('currentPlayers', handleCurrentPlayers);
-  //     socket.off('newPlayer', handleNewPlayer);
-  //     socket.off('playerMoved', handlePlayerMoved);
-  //     socket.off('playerDisconnected', handlePlayerDisconnected);
-  //   };
-  // }, [socketRef, imagesLoaded, handleCurrentPlayers, handleNewPlayer, handlePlayerMoved, handlePlayerDisconnected]);
-  
-
   // In your useGame.js, modify the socket effect:
 
 useEffect(() => {
@@ -324,9 +266,171 @@ useEffect(() => {
     }
   }, [player, otherPlayers, socketRef]);
 
+  // Check if a position is in area 2
+  const checkArea2 = useCallback((x, y) => {
+    // Convert pixel position to grid position
+    const gridX = Math.floor(x / BOUNDARY_SIZE);
+    const gridY = Math.floor(y / BOUNDARY_SIZE);
+    
+    // Check if the grid position contains 2
+    return collisions[gridY]?.[gridX] === 2;
+  }, []);
+
+  // Handle meeting room WebRTC
+  const initializeMeetingRoomCall = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setMeetingRoomCall(prev => ({ ...prev, active: true, localStream: stream }));
+
+      // Function to create peer connection for a participant
+      const createPeerConnection = async (participantId) => {
+        // Prevent duplicate peer connections
+        if (meetingPeerConnections.current[participantId]) {
+          return meetingPeerConnections.current[participantId];
+        }
+        const pc = new RTCPeerConnection(rtcConfig);
+        meetingPeerConnections.current[participantId] = pc;
+
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate && socketRef.current) {
+            socketRef.current.emit('meeting-ice-candidate', {
+              to: participantId,
+              candidate: event.candidate
+            });
+          }
+        };
+
+        pc.ontrack = (event) => {
+          setMeetingRoomCall(prev => ({
+            ...prev,
+            remoteStreams: {
+              ...prev.remoteStreams,
+              [participantId]: event.streams[0]
+            }
+          }));
+        };
+
+        return pc;
+      };
+
+      // Remove previous listeners to avoid duplicates
+      socketRef.current.off('meeting-user-joined');
+      socketRef.current.off('meeting-offer');
+      socketRef.current.off('meeting-answer');
+      socketRef.current.off('meeting-ice-candidate');
+      socketRef.current.off('meeting-user-left');
+      socketRef.current.off('meeting-existing-participants');
+
+      // --- Only the new participant creates offers to existing participants ---
+      let isInitiator = false;
+
+      socketRef.current.on('meeting-user-joined', async ({ userId }) => {
+        // If you receive this event, you are an existing participant.
+        // Do NOT create an offer. Wait for the new user to create offers to you.
+        // Just set up the peer connection when you receive an offer.
+      });
+
+      socketRef.current.on('meeting-offer', async ({ from, offer }) => {
+        const pc = await createPeerConnection(from);
+        // Only set remote offer if not already set
+        if (pc.signalingState === 'stable') {
+          await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socketRef.current.emit('meeting-answer', { to: from, answer });
+        } else {
+          console.warn(
+            `Skipping setRemoteDescription(offer) for ${from} because signalingState is ${pc.signalingState}`
+          );
+        }
+      });
+
+      socketRef.current.on('meeting-answer', async ({ from, answer }) => {
+        const pc = meetingPeerConnections.current[from];
+        // Only set remote answer if in correct signaling state
+        if (pc && pc.signalingState === 'have-local-offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        } else {
+          console.warn(
+            `Skipping setRemoteDescription(answer) for ${from} because signalingState is ${pc ? pc.signalingState : 'undefined'}`
+          );
+        }
+      });
+
+      socketRef.current.on('meeting-ice-candidate', async ({ from, candidate }) => {
+        const pc = meetingPeerConnections.current[from];
+        if (pc) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      });
+
+      socketRef.current.on('meeting-user-left', ({ userId }) => {
+        setMeetingRoomCall(prev => {
+          const newRemoteStreams = { ...prev.remoteStreams };
+          delete newRemoteStreams[userId];
+          return { ...prev, remoteStreams: newRemoteStreams };
+        });
+
+        if (meetingPeerConnections.current[userId]) {
+          meetingPeerConnections.current[userId].close();
+          delete meetingPeerConnections.current[userId];
+        }
+      });
+
+      // Join the meeting room and get the list of existing participants
+      socketRef.current.emit('joinMeetingRoom');
+
+      // Listen for the list of existing participants (sent by server after join)
+      socketRef.current.once('meeting-existing-participants', async ({ participants }) => {
+        // You are the new participant, create offers to all existing participants
+        isInitiator = true;
+        for (const participantId of participants) {
+          if (participantId === socketRef.current.id) continue;
+          const pc = await createPeerConnection(participantId);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socketRef.current.emit('meeting-offer', { to: participantId, offer });
+        }
+      });
+
+    } catch (error) {
+      console.error('Error initializing meeting room call:', error);
+    }
+  }, [rtcConfig]);
+
+  // Clean up meeting room call
+  const cleanupMeetingRoom = useCallback(() => {
+    if (meetingRoomCall.localStream) {
+      meetingRoomCall.localStream.getTracks().forEach(track => track.stop());
+    }
+    
+    Object.values(meetingPeerConnections.current).forEach(pc => pc.close());
+    meetingPeerConnections.current = {};
+    
+    setMeetingRoomCall({ active: false, localStream: null, remoteStreams: {} });
+    
+    if (socketRef.current) {
+      socketRef.current.emit('leaveMeetingRoom');
+    }
+  }, [meetingRoomCall.localStream]);
+
   // Player proximity checks
   const checkNearbyPlayers = useCallback(() => {
     if (!player) return;
+
+    // Check if player is in area 2
+    const isNowInArea2 = checkArea2(player.position.x, player.position.y);
+    
+    if (isNowInArea2 && !isInArea2) {
+      console.log('Player entered the meeting room area');
+      setIsInArea2(true);
+      initializeMeetingRoomCall(); // <-- Start meeting room call
+    } else if (!isNowInArea2 && isInArea2) {
+      setIsInArea2(false);
+      cleanupMeetingRoom(); // <-- Leave meeting room call
+    }
 
     Object.entries(otherPlayers).forEach(([id, otherPlayer]) => {
       const dx = player.position.x - otherPlayer.position.x;
@@ -342,7 +446,7 @@ useEffect(() => {
         console.log(`[DEBUG] ${otherPlayer.name} left the area`);
       }
     });
-  }, [player, otherPlayers]);
+  }, [player, otherPlayers, checkArea2, isInArea2, initializeMeetingRoomCall, cleanupMeetingRoom]);
 
   return {
     player,
@@ -362,7 +466,10 @@ useEffect(() => {
     checkNearbyPlayers,
     mapImage,
     backgroundImage,
-    playerImages
+    playerImages,
+    isInArea2,
+    meetingRoomCall,
+    setMeetingRoomCall
   };
 };
 

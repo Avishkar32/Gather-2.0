@@ -51,6 +51,9 @@ app.post('/upload', upload.single('file'), (req, res) => {
   res.json({ filePath: `http://localhost:3001/${req.file.filename}` });
 });
 
+// Meeting room state
+const meetingRoomParticipants = new Set();
+
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
   
@@ -181,6 +184,37 @@ io.on('connection', (socket) => {
     io.to(to).emit('endCall');
   });
 
+  // Meeting room handling
+  socket.on('joinMeetingRoom', () => {
+    meetingRoomParticipants.add(socket.id);
+
+    // Notify existing participants about new user (but NOT the joining user)
+    socket.broadcast.emit('meeting-user-joined', { userId: socket.id });
+
+    // Send the list of existing participants to the joining user
+    socket.emit('meeting-existing-participants', {
+      participants: Array.from(meetingRoomParticipants).filter(id => id !== socket.id)
+    });
+  });
+
+  socket.on('leaveMeetingRoom', () => {
+    meetingRoomParticipants.delete(socket.id);
+    io.emit('meeting-user-left', { userId: socket.id });
+  });
+
+  // Meeting room WebRTC signaling
+  socket.on('meeting-offer', ({ to, offer }) => {
+    io.to(to).emit('meeting-offer', { from: socket.id, offer });
+  });
+
+  socket.on('meeting-answer', ({ to, answer }) => {
+    io.to(to).emit('meeting-answer', { from: socket.id, answer });
+  });
+
+  socket.on('meeting-ice-candidate', ({ to, candidate }) => {
+    io.to(to).emit('meeting-ice-candidate', { from: socket.id, candidate });
+  });
+
   // Handle disconnections
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
@@ -198,6 +232,16 @@ io.on('connection', (socket) => {
     
     // Notify clients about updated online users
     io.emit('onlineUserswithnames', users);
+
+    // Meeting room cleanup
+    meetingRoomParticipants.delete(socket.id);
+    io.emit('participantLeft', { id: socket.id });
+
+    // Meeting room cleanup
+    if (meetingRoomParticipants.has(socket.id)) {
+      meetingRoomParticipants.delete(socket.id);
+      io.emit('meeting-user-left', { userId: socket.id });
+    }
   });
 });
 

@@ -47,7 +47,10 @@ const Canvas = () => {
     checkNearbyPlayers,
     mapImage,
     backgroundImage,
-    playerImages
+    playerImages,
+    isInArea2,
+    meetingRoomCall,
+    setMeetingRoomCall,
   } = useGame(canvasRef, socketRef, keysRef);
 
   // Initialize canvas and socket
@@ -664,6 +667,47 @@ const Canvas = () => {
               End Call
             </button>
           </div>
+        </div>
+      )}
+      {/* Meeting Room Video Conference */}
+      {meetingRoomCall.active && (
+        <div style={{
+          position: 'fixed',
+          right: '20px',
+          top: '20px',
+          width: '300px',
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          borderRadius: '10px',
+          padding: '10px',
+          zIndex: 1000
+        }}>
+          <h3 style={{ color: 'white' }}>Meeting Room</h3>
+          {/* Local video */}
+          <video
+            autoPlay
+            muted
+            playsInline
+            style={{ width: '100%', borderRadius: '5px', marginBottom: '10px' }}
+            ref={el => {
+              if (el && meetingRoomCall.localStream) {
+                el.srcObject = meetingRoomCall.localStream;
+              }
+            }}
+          />
+          {/* Remote videos */}
+          {meetingRoomCall.remoteStreams && Object.entries(meetingRoomCall.remoteStreams).map(([userId, stream]) => (
+            <video
+              key={userId}
+              autoPlay
+              playsInline
+              style={{ width: '100%', borderRadius: '5px', marginBottom: '10px' }}
+              ref={el => {
+                if (el && stream) {
+                  el.srcObject = stream;
+                }
+              }}
+            />
+          ))}
         </div>
       )}
       {showChat && (
