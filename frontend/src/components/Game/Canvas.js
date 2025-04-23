@@ -23,6 +23,11 @@ const Canvas = () => {
   const [showNameModal, setShowNameModal] = useState(true);
   const [tempPlayerName, setTempPlayerName] = useState('');
   const [incomingCall, setIncomingCall] = useState(null);
+  const [videoCall, setVideoCall] = useState({ active: false, localStream: null, remoteStream: null });
+  const peerConnectionRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const localVideoRef = useRef(null);
+  const [callPeerId, setCallPeerId] = useState(null);
   
   const {
     player,
@@ -156,7 +161,6 @@ const Canvas = () => {
   // Patch interaction menu to trigger call
   useEffect(() => {
     if (!interactionMenu.current) return;
-    // Save original handleClick
     const originalHandleClick = interactionMenu.current.handleClick.bind(interactionMenu.current);
     interactionMenu.current.handleClick = (otherPlayers) => {
       if (
@@ -164,6 +168,10 @@ const Canvas = () => {
         interactionMenu.current.selectedOption === 'voiceChat' &&
         interactionMenu.current.targetId
       ) {
+        // Initialize caller's side of the call
+        setCallPeerId(interactionMenu.current.targetId);
+        setVideoCall(vc => ({ ...vc, active: true }));
+        
         // Send call event to server
         if (socketRef.current) {
           socketRef.current.emit('callUser', {
@@ -176,11 +184,257 @@ const Canvas = () => {
       }
       return originalHandleClick(otherPlayers);
     };
-    // Cleanup: restore original on unmount
     return () => {
       interactionMenu.current.handleClick = originalHandleClick;
     };
   }, [interactionMenu, playerName]);
+
+  // WebRTC config (use public STUN for demo)
+  const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+  // Accept incoming call
+  const handleAcceptCall = async () => {
+    try {
+      setIncomingCall(null);
+      setCallPeerId(incomingCall.callerId);
+      setVideoCall(vc => ({ ...vc, active: true }));
+
+      // Get local media
+      const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      console.log('Got local stream:', localStream.getTracks());
+      setVideoCall(vc => ({ ...vc, localStream }));
+
+      // Create peer connection
+      const pc = new window.RTCPeerConnection(rtcConfig);
+      peerConnectionRef.current = pc;
+
+      pc.oniceconnectionstatechange = () => {
+        console.log('ICE connection state:', pc.iceConnectionState);
+      };
+
+      // Add local tracks
+      localStream.getTracks().forEach(track => {
+        console.log('Adding local track:', track.kind);
+        pc.addTrack(track, localStream);
+      });
+
+      // Send ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate && socketRef.current) {
+          console.log('Sending ICE candidate:', event.candidate);
+          socketRef.current.emit('ice-candidate', {
+            to: incomingCall.callerId,
+            candidate: event.candidate
+          });
+        }
+      };
+
+      // Receive remote stream
+      pc.ontrack = (event) => {
+        console.log('Received remote track:', event.track.kind);
+        if (event.streams && event.streams[0]) {
+          console.log('Setting remote stream');
+          setVideoCall(vc => ({ ...vc, remoteStream: event.streams[0] }));
+        }
+      };
+
+      // Remove any existing listeners
+      socketRef.current.off('offer');
+      socketRef.current.off('ice-candidate');
+
+      // Create and send answer
+      socketRef.current.on('offer', async ({ from, offer }) => {
+        console.log('Received offer, creating answer');
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socketRef.current.emit('answer', { to: from, answer });
+      });
+
+      // Listen for ICE candidates
+      socketRef.current.on('ice-candidate', async ({ candidate }) => {
+        try {
+          if (candidate) {
+            console.log('Received ICE candidate');
+            if (pc.remoteDescription) {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            } else {
+              console.log('Waiting for remote description before adding ICE candidate');
+            }
+          }
+        } catch (err) {
+          console.error('Error adding received ICE candidate:', err);
+        }
+      });
+
+      // Notify caller to start offer
+      socketRef.current.emit('acceptCall', { to: incomingCall.callerId });
+    } catch (error) {
+      console.error('Error in handleAcceptCall:', error);
+      handleEndCall();
+    }
+  };
+
+  // Initiate call as caller
+  useEffect(() => {
+    if (!callPeerId || !videoCall.active) return;
+
+    let pc;
+    let localStream;
+
+    const startCaller = async () => {
+      try {
+        // Clean up any existing connection
+        if (peerConnectionRef.current) {
+          peerConnectionRef.current.close();
+          peerConnectionRef.current = null;
+        }
+
+        // Get local media
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        console.log('Caller got local stream:', localStream.getTracks());
+        setVideoCall(vc => ({ ...vc, localStream }));
+
+        pc = new window.RTCPeerConnection(rtcConfig);
+        peerConnectionRef.current = pc;
+
+        pc.oniceconnectionstatechange = () => {
+          console.log('Caller ICE connection state:', pc.iceConnectionState);
+        };
+
+        // Add local tracks
+        localStream.getTracks().forEach(track => {
+          console.log('Caller adding track:', track.kind);
+          pc.addTrack(track, localStream);
+        });
+
+        // ICE candidates
+        pc.onicecandidate = (event) => {
+          if (event.candidate && socketRef.current) {
+            console.log('Caller sending ICE candidate:', event.candidate);
+            socketRef.current.emit('ice-candidate', {
+              to: callPeerId,
+              candidate: event.candidate
+            });
+          }
+        };
+
+        // Remote stream
+        pc.ontrack = (event) => {
+          console.log('Caller received track:', event.track.kind);
+          if (event.streams && event.streams[0]) {
+            console.log('Caller setting remote stream');
+            setVideoCall(vc => ({ ...vc, remoteStream: event.streams[0] }));
+          }
+        };
+
+        // Remove existing listeners
+        socketRef.current.off('answer');
+        socketRef.current.off('ice-candidate');
+        socketRef.current.off('acceptCall');
+
+        // Set up new listeners
+        socketRef.current.on('answer', async ({ answer }) => {
+          console.log('Received answer from callee');
+          if (pc.signalingState !== 'closed') {
+            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          }
+        });
+
+        socketRef.current.on('ice-candidate', async ({ candidate }) => {
+          try {
+            if (candidate && pc.remoteDescription) {
+              console.log('Caller received ICE candidate');
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+          } catch (err) {
+            console.error('Error adding received ICE candidate:', err);
+          }
+        });
+
+        // When receiver accepts, create and send offer
+        socketRef.current.on('acceptCall', async () => {
+          try {
+            console.log('Call accepted, creating offer');
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socketRef.current.emit('offer', { to: callPeerId, offer });
+          } catch (error) {
+            console.error('Error creating offer:', error);
+          }
+        });
+      } catch (error) {
+        console.error('Error in startCaller:', error);
+        handleEndCall();
+      }
+    };
+
+    startCaller();
+
+    return () => {
+      console.log('Cleaning up caller effect');
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+      if (pc) {
+        pc.close();
+      }
+    };
+  }, [callPeerId, videoCall.active]);
+
+  // Cleanup on call end
+  const handleEndCall = () => {
+    setVideoCall({ active: false, localStream: null, remoteStream: null });
+    setCallPeerId(null);
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+    if (localVideoRef.current && localVideoRef.current.srcObject) {
+      localVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
+    }
+    if (remoteVideoRef.current && remoteVideoRef.current.srcObject) {
+      remoteVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
+    }
+    // Optionally notify peer
+    if (socketRef.current && callPeerId) {
+      socketRef.current.emit('endCall', { to: callPeerId });
+    }
+  };
+
+  // Attach streams to video elements with error handling
+  useEffect(() => {
+    console.log('Attaching streams to video elements');
+    if (localVideoRef.current && videoCall.localStream) {
+      console.log('Setting local video stream');
+      localVideoRef.current.srcObject = videoCall.localStream;
+    }
+    if (remoteVideoRef.current && videoCall.remoteStream) {
+      console.log('Setting remote video stream');
+      remoteVideoRef.current.srcObject = videoCall.remoteStream;
+    }
+
+    // Add onloadedmetadata handlers
+    const localVideo = localVideoRef.current;
+    const remoteVideo = remoteVideoRef.current;
+
+    if (localVideo) {
+      localVideo.onloadedmetadata = () => console.log('Local video metadata loaded');
+      localVideo.onerror = (e) => console.error('Local video error:', e);
+    }
+    if (remoteVideo) {
+      remoteVideo.onloadedmetadata = () => console.log('Remote video metadata loaded');
+      remoteVideo.onerror = (e) => console.error('Remote video error:', e);
+    }
+  }, [videoCall.localStream, videoCall.remoteStream]);
+
+  // Listen for call end from peer
+  useEffect(() => {
+    if (!socketRef.current) return;
+    const handlePeerEnd = () => handleEndCall();
+    socketRef.current.on('endCall', handlePeerEnd);
+    return () => socketRef.current.off('endCall', handlePeerEnd);
+  }, [callPeerId]);
 
   // Game loop
   const animate = useCallback(() => {
@@ -348,7 +602,7 @@ const Canvas = () => {
                   fontSize: 16,
                   cursor: 'pointer'
                 }}
-                onClick={() => setIncomingCall(null)}
+                onClick={handleAcceptCall}
               >
                 Accept
               </button>
@@ -367,6 +621,48 @@ const Canvas = () => {
                 Reject
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Video Call Modal */}
+      {videoCall.active && (
+        <div style={{
+          position: 'fixed',
+          left: 0, right: 0, top: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)',
+          zIndex: 3000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <div style={{
+            background: '#fff',
+            borderRadius: 12,
+            padding: 24,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
+          }}>
+            <h2 style={{ color: '#4a6cf7' }}>Video Call</h2>
+            <div style={{ display: 'flex', gap: 16, margin: '16px 0' }}>
+              <video ref={localVideoRef} autoPlay muted playsInline style={{ width: 240, borderRadius: 8, background: '#222' }} />
+              <video ref={remoteVideoRef} autoPlay playsInline style={{ width: 240, borderRadius: 8, background: '#222' }} />
+            </div>
+            <button
+              style={{
+                background: '#ff4b4b',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '10px 24px',
+                fontSize: 16,
+                cursor: 'pointer'
+              }}
+              onClick={handleEndCall}
+            >
+              End Call
+            </button>
           </div>
         </div>
       )}
