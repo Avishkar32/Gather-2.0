@@ -58,7 +58,7 @@ const Canvas = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext('2d');
     setCtx(context);
-    socketRef.current = io('http://localhost:3001');
+    socketRef.current = io('https://gather-office.onrender.com');
 
     return () => {
       socketRef.current.disconnect();

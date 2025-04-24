@@ -19,7 +19,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: "https://gather-office.vercel.app/",
     methods: ["GET", "POST"]
   }
 });
@@ -48,7 +48,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
-  res.json({ filePath: `http://localhost:3001/${req.file.filename}` });
+  res.json({ filePath: `https://gather-office.onrender.com/${req.file.filename}` });
 });
 
 // Meeting room state
@@ -245,7 +245,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
