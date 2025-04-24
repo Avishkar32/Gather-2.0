@@ -115,7 +115,7 @@ function Chat({ username, socket }) {
               {allchat.map(({ sender, message, senderUsername }, idx) => (
                 <div key={`${sender}-${idx}`} className={`chat-message ${sender === socket.id ? 'right' : 'left'}`}>
                   <div className={`message-box ${sender === socket.id ? 'sent' : 'received'}`}>
-                    {message.startsWith('https://gather-office.onrender.com/') ? (
+                    {message.startsWith('https://gather-office.onrender.com') ? (
                       <a href={message} target="_blank" rel="noopener noreferrer">{message}</a>
                     ) : (
                       <p>{message}</p>
