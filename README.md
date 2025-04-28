@@ -1,3 +1,28 @@
+# 🕹️ 2D Metaverse Platform | Gather Town-Inspired Virtual Space
+
+A **real-time 2D virtual world** where users can **move around, chat, and video call** — built with **React.js**, **Node.js (Express)**, **WebSockets**, and **WebRTC**.
+
+This project reimagines online interaction by combining **live text chat** and **peer-to-peer video communication** inside a **dynamic 2D environment**.  
+Inspired by **Gather Town**, it creates an engaging and social remote experience.
+
+---
+
+## 🚀 Features
+
+- 🧍 Move your avatar freely across a customizable 2D map
+- 💬 Instant real-time messaging powered by **WebSockets**
+- 🎥 Seamless peer-to-peer video calling using **WebRTC**
+- ⚡ Low-latency server-client communication
+
+---
+
+## 🛠️ Tech Stack
+
+- **Frontend:** React.js, WebRTC APIs, Socket.IO-client
+- **Backend:** Node.js, Express.js, Socket.IO-server
+- **Real-time Communication:** WebSockets + WebRTC
+
+---
 
 # 🚀 Project Setup Guide
 
