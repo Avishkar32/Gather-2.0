@@ -61,7 +61,7 @@ function Chat({ username, socket }) {
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const res = await axios.post('https://gather-office.onrender.com/upload', formData, {
+        const res = await axios.post('http://localhost:3001/upload', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
         const filePath = res.data.filePath;
@@ -115,7 +115,7 @@ function Chat({ username, socket }) {
               {allchat.map(({ sender, message, senderUsername }, idx) => (
                 <div key={`${sender}-${idx}`} className={`chat-message ${sender === socket.id ? 'right' : 'left'}`}>
                   <div className={`message-box ${sender === socket.id ? 'sent' : 'received'}`}>
-                    {message.startsWith('https://gather-office.onrender.com') ? (
+                    {message.startsWith('http://localhost:3001') ? (
                       <a href={message} target="_blank" rel="noopener noreferrer">{message}</a>
                     ) : (
                       <p>{message}</p>
